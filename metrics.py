@@ -11,6 +11,7 @@
 
 from pathlib import Path
 import os
+import pandas as pd
 from PIL import Image
 import torch
 import torchvision.transforms.functional as tf
@@ -32,6 +33,20 @@ def readImages(renders_dir, gt_dir):
         gts.append(tf.to_tensor(gt).unsqueeze(0)[:, :3, :, :].cuda())
         image_names.append(fname)
     return renders, gts, image_names
+
+def writeToCSV(metrics, scene_dir):
+    output_folder = os.path.basename(scene_dir)
+
+    if(os.path.exists("./models.csv")):
+        df = pd.read_csv("./models.csv", header=0)
+    else:
+        raise FileNotFoundError("models.csv not found")
+
+    df.loc[df["output_folder"] == output_folder, "SSIM"] = metrics["SSIM"]
+    df.loc[df["output_folder"] == output_folder, "PSNR"] = metrics["PSNR"]
+    df.loc[df["output_folder"] == output_folder, "LPIPS"] = metrics["LPIPS"]
+
+    df.to_csv("./models.csv", index=False)
 
 def evaluate(model_paths):
 
@@ -84,6 +99,8 @@ def evaluate(model_paths):
                 per_view_dict[scene_dir][method].update({"SSIM": {name: ssim for ssim, name in zip(torch.tensor(ssims).tolist(), image_names)},
                                                             "PSNR": {name: psnr for psnr, name in zip(torch.tensor(psnrs).tolist(), image_names)},
                                                             "LPIPS": {name: lp for lp, name in zip(torch.tensor(lpipss).tolist(), image_names)}})
+
+                writeToCSV(full_dict[scene_dir][method], scene_dir)
 
             with open(scene_dir + "/results.json", 'w') as fp:
                 json.dump(full_dict[scene_dir], fp, indent=True)

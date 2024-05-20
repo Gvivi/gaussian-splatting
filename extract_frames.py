@@ -1,6 +1,7 @@
 import os
 import logging
 import pandas as pd
+from PIL import Image
 from argparse import ArgumentParser
 
 parser = ArgumentParser("ffmpeg extractor")
@@ -31,8 +32,9 @@ os.system("ffmpeg" + " -i " + args.source_path + " -qscale:v 1 -qmin 1 -vf fps={
 
 
 # Create or add to the input.csv file
-df = pd.DataFrame(columns=["input_folder", "video", "fps_extracted", "frame_count", "convert_time"])
+df = pd.DataFrame(columns=["input_folder", "image_source", "extracted_fps", "image_count", "resolution"])
 input_folder = os.path.basename(output_dir)
+image_w, image_h = Image.open(output_dir + "/input/0001.png").size
 
-df = df.append({"input_folder": input_folder, "video": video_file, "fps_extracted": args.fps, "frame_count": len(os.listdir(output_dir + "/input"))}, ignore_index=True)
+df = df.append({"input_folder": input_folder, "image_source": video_file, "extracted_fps": args.fps, "image_count": len(os.listdir(output_dir + "/input")), "resolution": str(image_w) + "x" + str(image_h)}, ignore_index=True)
 df.to_csv("./input/input.csv", mode='a', index=False, header=not os.path.exists("./input/input.csv"))

@@ -12,6 +12,7 @@
 import os
 import logging
 import pandas as pd
+from PIL import Image
 from argparse import ArgumentParser
 import shutil
 import time
@@ -128,9 +129,21 @@ if(args.resize):
 
 print("Total elapsed time: " + str(timedelta(seconds=time.time() - start_time)))
 
-df = pd.read_csv("./input/input.csv", header=0, index_col=0)
-print(os.path.basename(args.source_path))
-df.at[os.path.basename(args.source_path), 'convert_time'] = timedelta(seconds=time.time() - start_time)
-df.to_csv("./input/input.csv")
+df = None
+if(os.path.exists("./input/input.csv")):
+    df = pd.read_csv("./input/input.csv", header=0)
+else:
+    df = pd.DataFrame(columns=["input_folder", "image_source", "resolution", "image_count", "sfm_time"])
+
+input_folder = os.path.basename(args.source_path)
+image_w, image_h = Image.open(os.path.join(args.source_path + "/input/" ,os.listdir(args.source_path + "/input")[0])).size
+print(input_folder)
+
+if input_folder not in df.input_folder:
+    df = df.append({"input_folder": input_folder, "image_source": None, "resolution": str(image_w) + "x" + str(image_h), "image_count": len(os.listdir(args.source_path + "/input")), "sfm_time": timedelta(seconds=time.time() - start_time)}, ignore_index=True)
+else:
+    df.at[input_folder, "sfm_time"] = timedelta(seconds=time.time() - start_time)
+
+df.to_csv("./input/input.csv", index=False)
 
 print("Done.")

@@ -33,12 +33,12 @@ try:
 except ImportError:
     TENSORBOARD_FOUND = False
 
-def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoint_iterations, checkpoint, debug_from):
+def training(dataset, opt, pipe, testing_iterations, test_steps, saving_iterations, checkpoint_iterations, checkpoint, debug_from):
     first_iter = 0
     tb_writer = prepare_output_and_logger(dataset)
     gaussians = GaussianModel(dataset.sh_degree)
     scene = Scene(dataset, gaussians)
-    df = prepare_df(dataset, opt, scene)
+    df = prepare_df(dataset, opt, scene, test_steps)
     gaussians.training_setup(opt)
     if checkpoint:
         (model_params, first_iter) = torch.load(checkpoint)
@@ -137,9 +137,9 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                 print("\n[ITER {}] Saving Checkpoint".format(iteration))
                 torch.save((gaussians.capture(), iteration), scene.model_path + "/chkpnt" + str(iteration) + ".pth")
 
-    df.at[0, "total_points"] = scene.gaussians.get_xyz.shape[0]
-    df.at[0, "train_time"] = timedelta(seconds=time.time() - start_time)
-    df.to_csv("./output/output.csv", mode='a', index=False, header=not os.path.exists("./output/output.csv"))
+    df.loc[df["output_folder"] == os.path.basename(scene.model_path), "total_points"] = scene.gaussians.get_xyz.shape[0]
+    df.loc[df["output_folder"] == os.path.basename(scene.model_path), "training_time"] = timedelta(seconds=time.time() - start_time)
+    df.to_csv("./models.csv", index=False)
 
 def prepare_output_and_logger(args):    
     if not args.model_path:
@@ -187,16 +187,16 @@ def training_report(tb_writer, iteration, Ll1, loss, l1_loss, elapsed, testing_i
                     gt_image = torch.clamp(viewpoint.original_image.to("cuda"), 0.0, 1.0)
                     if tb_writer and (idx < 5):
                         # save rendered image
-                        img_dir = args.model_path + '/eval/' + config['name'] + "/_view_{}/render".format(viewpoint.image_name)
-                        os.makedirs(img_dir, exist_ok=True)
-                        save_image(image, img_dir + "/" + str(iteration) + '.png')
-                        #tb_writer.add_images(config['name'] + "_view_{}/render".format(viewpoint.image_name), image[None], global_step=iteration)
+                        #img_dir = args.model_path + '/eval/' + config['name'] + "/_view_{}/render".format(viewpoint.image_name)
+                        #os.makedirs(img_dir, exist_ok=True)
+                        #save_image(image, img_dir + "/" + str(iteration) + '.png')
+                        tb_writer.add_images(config['name'] + "_view_{}/render".format(viewpoint.image_name), image[None], global_step=iteration)
                         if iteration == testing_iterations[0]:
                             # save ground truth image
-                            gt_dir = args.model_path + '/eval/' + config['name'] + "/_view_{}/ground_truth".format(viewpoint.image_name)
-                            os.makedirs(gt_dir, exist_ok=True)
-                            save_image(gt_image, gt_dir + '/gt.png')
-                            #tb_writer.add_images(config['name'] + "_view_{}/ground_truth".format(viewpoint.image_name), gt_image[None], global_step=iteration)
+                            #gt_dir = args.model_path + '/eval/' + config['name'] + "/_view_{}/ground_truth".format(viewpoint.image_name)
+                            #os.makedirs(gt_dir, exist_ok=True)
+                            #save_image(gt_image, gt_dir + '/gt.png')
+                            tb_writer.add_images(config['name'] + "_view_{}/ground_truth".format(viewpoint.image_name), gt_image[None], global_step=iteration)
                     l1_test += l1_loss(image, gt_image).mean().double()
                     psnr_test += psnr(image, gt_image).mean().double()
                 psnr_test /= len(config['cameras'])
@@ -211,14 +211,36 @@ def training_report(tb_writer, iteration, Ll1, loss, l1_loss, elapsed, testing_i
             tb_writer.add_scalar('total_points', scene.gaussians.get_xyz.shape[0], iteration)
         torch.cuda.empty_cache()
 
-def prepare_df(args, opt, scene : Scene):
-    df_out = pd.DataFrame(columns=["model_name", "input_folder", "camera_count", "init_points", "iterations", "resolution_divisor", "train_time", "test_l1_loss", "test_psnr", "train_l1_loss", "train_psnr", "total_points"])
-    df_out = df_out.append({"model_name": os.path.basename(args.model_path), "input_folder": os.path.basename(args.source_path), "camera_train_count": len(scene.getTrainCameras()), "camera_test_count": len(scene.getTestCameras()), "init_points": scene.init_points, "iterations": opt.iterations, "resolution_divisor": args.resolution}, ignore_index=True)
+def prepare_df(args, opt, scene : Scene, test_steps):
+    file_path = "./models.csv"
+    input_folder = os.path.basename(args.source_path)
+    output_folder = os.path.basename(args.model_path)
 
-    df_in = pd.read_csv("./input/input.csv", header=0, index_col=0)
-    df_out = df_out.merge(df_in, left_on="input_folder", right_index=True, how="left")
+    # Read input CSV file
+    if os.path.exists("./input/input.csv"):
+        df_in = pd.read_csv("./input/input.csv", header=0)
+    else:
+        raise ValueError("No input CSV file found.")
 
-    return df_out
+    if(os.path.exists("./models.csv")):
+        df = pd.read_csv("./models.csv", header=0)
+    else:
+        df = pd.DataFrame(columns=["date_of_recording", "input_folder", "output_folder", "sfm_time", "training_time", "iterations", "test_interval", "resolution", "resolution_divisor", "image_count", "camera_train_count", "camera_test_count", "initial_points", "total_points"])
+    
+    df = df.append({"output_folder": output_folder,
+                    "input_folder": input_folder,
+                    "sfm_time": df_in.loc[df_in["input_folder"] == input_folder, "sfm_time"].values[0],
+                    "iterations": opt.iterations,
+                    "test_interval": test_steps,
+                    "resolution": df_in.loc[df_in["input_folder"] == input_folder, "resolution"].values[0],
+                    "resolution_divisor": args.resolution,
+                    "image_count": df_in.loc[df_in["input_folder"] == input_folder, "image_count"].values[0],
+                    "camera_train_count": len(scene.getTrainCameras()),
+                    "camera_test_count": len(scene.getTestCameras()),
+                    "initial_points": scene.init_points},
+                    ignore_index=True)
+
+    return df
 
 if __name__ == "__main__":
     # Set up command line argument parser
@@ -253,7 +275,7 @@ if __name__ == "__main__":
     # Start GUI server, configure and run training
     network_gui.init(args.ip, args.port)
     torch.autograd.set_detect_anomaly(args.detect_anomaly)
-    training(lp.extract(args), op.extract(args), pp.extract(args), args.test_iterations, args.save_iterations, args.checkpoint_iterations, args.start_checkpoint, args.debug_from)
+    training(lp.extract(args), op.extract(args), pp.extract(args), args.test_iterations, args.test_steps, args.save_iterations, args.checkpoint_iterations, args.start_checkpoint, args.debug_from)
 
     model_path = args.model_path
 

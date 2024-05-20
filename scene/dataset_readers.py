@@ -144,14 +144,23 @@ def readColmapSceneInfo(path, images, eval, llffhold=8):
         cameras_intrinsic_file = os.path.join(path, "sparse/0", "cameras.txt")
         cam_extrinsics = read_extrinsics_text(cameras_extrinsic_file)
         cam_intrinsics = read_intrinsics_text(cameras_intrinsic_file)
+    
 
     reading_dir = "images" if images == None else images
     cam_infos_unsorted = readColmapCameras(cam_extrinsics=cam_extrinsics, cam_intrinsics=cam_intrinsics, images_folder=os.path.join(path, reading_dir))
     cam_infos = sorted(cam_infos_unsorted.copy(), key = lambda x : x.image_name)
 
+    test_cam_idx = None
+    if os.path.exists(os.path.join(path, "test_cameras.json")):
+        test_cam_idx = readManualTestCameras(os.path.join(path, "test_cameras.json"))
+
     if eval:
-        train_cam_infos = [c for idx, c in enumerate(cam_infos) if idx % llffhold != 0]
-        test_cam_infos = [c for idx, c in enumerate(cam_infos) if idx % llffhold == 0]
+        if test_cam_idx:
+            train_cam_infos = [c for idx, c in enumerate(cam_infos) if idx+1 not in test_cam_idx]
+            test_cam_infos = [c for idx, c in enumerate(cam_infos) if idx+1 in test_cam_idx]
+        else:
+            train_cam_infos = [c for idx, c in enumerate(cam_infos) if idx % llffhold != 0]
+            test_cam_infos = [c for idx, c in enumerate(cam_infos) if idx % llffhold == 0]
     else:
         train_cam_infos = cam_infos
         test_cam_infos = []
@@ -277,11 +286,11 @@ def readManualSceneInfo(path, images, eval, llffhold=8):
     test_cam_idx = None
     if os.path.exists(os.path.join(path, "manual", "test_cameras.json")):
         test_cam_idx = readManualTestCameras(os.path.join(path, "manual", "test_cameras.json"))
-        test_cam_infos = [cam_infos[i] for i in test_cam_idx]
 
     if eval:
         if test_cam_idx:
-            train_cam_infos = [c for idx, c in enumerate(cam_infos) if idx not in test_cam_idx]
+            train_cam_infos = [c for idx, c in enumerate(cam_infos) if idx+1 not in test_cam_idx]
+            test_cam_infos = [c for idx, c in enumerate(cam_infos) if idx+1 in test_cam_idx]
         else:
             train_cam_infos = [c for idx, c in enumerate(cam_infos) if idx % llffhold != 0]
             test_cam_infos = [c for idx, c in enumerate(cam_infos) if idx % llffhold == 0]
@@ -294,18 +303,29 @@ def readManualSceneInfo(path, images, eval, llffhold=8):
 
     nerf_normalization = getNerfppNorm(train_cam_infos)
 
-    ply_path = os.path.join(path, "points3d.ply")
-    if not os.path.exists(ply_path):
-        # Since this data set has no colmap ply, we start with random points
-        num_pts = 100_000
-        print(f"Generating random point cloud ({num_pts})...")
-        
-        # We create random points inside the bounds of the synthetic Blender scenes
-        xyz = np.random.random((num_pts, 3)) * 2.6 - 1.3
-        shs = np.random.random((num_pts, 3)) / 255.0
-        pcd = BasicPointCloud(points=xyz, colors=SH2RGB(shs), normals=np.zeros((num_pts, 3)))
+    ply_path = os.path.join(path, "manual/points3d.ply")
+    bin_path = os.path.join(path, "manual/points3D.bin")
+    txt_path = os.path.join(path, "manual/points3D.txt")
 
-        storePly(ply_path, xyz, SH2RGB(shs) * 255)
+    if not os.path.exists(ply_path):
+        print("Converting point3d.bin to .ply, will happen only the first time you open the scene.")
+        if os.path.exists(bin_path) or os.path.exists(txt_path):
+            try:
+                xyz, rgb, _ = read_points3D_binary(bin_path)
+            except:
+                xyz, rgb, _ = read_points3D_text(txt_path)
+            storePly(ply_path, xyz, rgb)
+        else:
+            # Since this data set has no colmap ply, we start with random points
+            num_pts = 100_000
+            print(f"Generating random point cloud ({num_pts})...")
+            
+            # We create random points inside the bounds of the synthetic Blender scenes
+            xyz = np.random.random((num_pts, 3)) * 2.6 - 1.3
+            shs = np.random.random((num_pts, 3)) / 255.0
+            pcd = BasicPointCloud(points=xyz, colors=SH2RGB(shs), normals=np.zeros((num_pts, 3)))
+
+            storePly(ply_path, xyz, SH2RGB(shs) * 255)
     try:
         pcd = fetchPly(ply_path)
     except:
