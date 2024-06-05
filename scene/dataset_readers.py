@@ -284,8 +284,8 @@ def readManualSceneInfo(path, images, eval, llffhold=8):
     cam_infos = sorted(cam_infos_unsorted.copy(), key = lambda x : x.image_name)
 
     test_cam_idx = None
-    if os.path.exists(os.path.join(path, "manual", "test_cameras.json")):
-        test_cam_idx = readManualTestCameras(os.path.join(path, "manual", "test_cameras.json"))
+    if os.path.exists(os.path.join(path, "test_cameras.json")):
+        test_cam_idx = readManualTestCameras(os.path.join(path, "test_cameras.json"))
 
     if eval:
         if test_cam_idx:
